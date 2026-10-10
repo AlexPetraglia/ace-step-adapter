@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ace-step-adapter"
+version = "0.1.0"
+description = "Local HTTP service that wraps ACE-Step 1.5 and exposes its REST contract."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+# The ACE-Step package itself is installed separately (see README).
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+ace-step-adapter = "ace_step_adapter.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["ace_step_adapter*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,27 @@
+# Example configuration for ace-step-adapter.
+# Copy to config.toml and adjust. Relative paths are resolved from this file's folder.
+
+[server]
+host = "127.0.0.1"
+port = 8001
+
+[ace_step]
+# Folder of the ACE-Step 1.5 installation (installed separately).
+project_path = "D:/develop/apps-ia/ACE-Step-1.5"
+# DiT model used for generation.
+model = "acestep-v15-turbo"
+device = "auto"
+# "int8_weight_only" reduces DiT memory use. Use "none" to disable.
+quantization = "int8_weight_only"
+# Moves models to the CPU between stages. Needed on 6 GB GPUs.
+offload_to_cpu = true
+
+[tasks]
+# A task still running after this many seconds is reported as failed.
+timeout_seconds = 1200
+
+[output]
+directory = "output"
+
+[logging]
+directory = "logs"

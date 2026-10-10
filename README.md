@@ -89,7 +89,53 @@ Runtime settings live in the adapter's own configuration file, not in server env
 
 ## Installation
 
-> Coming soon. Installation, the run command and the tests will be documented once the implementation is ready.
+The adapter uses its own virtual environment. ACE-Step is installed from its own folder.
+
+1. **Install ACE-Step 1.5** (in a folder separate from this repository) and download its models, following the ACE-Step documentation.
+
+2. **Create the adapter environment** with Python 3.12 (3.11 also works):
+
+   ```powershell
+   cd ace-step-adapter
+   uv venv --python 3.12 .venv
+   uv pip install -p .venv\Scripts\python.exe -e ".[dev]"
+   ```
+
+3. **Install ACE-Step's pinned dependencies** into the same environment. The versions come from ACE-Step's own lock file, and the PyTorch CUDA index is required:
+
+   ```powershell
+   cd ..\ACE-Step-1.5
+   uv export --frozen --no-hashes --no-emit-project --format requirements-txt -o ..\ace-step-adapter\ace-lock-requirements.txt
+   cd ..\ace-step-adapter
+   # Remove the relative nano-vllm line from ace-lock-requirements.txt, then:
+   uv pip install -p .venv\Scripts\python.exe --extra-index-url https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match -r ace-lock-requirements.txt
+   uv pip install -p .venv\Scripts\python.exe --no-deps -e ..\ACE-Step-1.5\acestep\third_parts\nano-vllm
+   uv pip install -p .venv\Scripts\python.exe --no-deps -e ..\ACE-Step-1.5
+   ```
+
+4. **Configure**: copy `config.example.toml` to `config.toml` and set `ace_step.project_path`.
+
+5. **Run**:
+
+   ```powershell
+   .venv\Scripts\python.exe -m ace_step_adapter --config config.toml
+   ```
+
+   The service listens on `http://127.0.0.1:8001` by default. `GET /health` returns `models_initialized: true` once the model is loaded.
+
+6. **Run the tests** (no GPU or model needed):
+
+   ```powershell
+   .venv\Scripts\python.exe -m pytest
+   ```
+
+The `ace-lock-requirements.txt` file is generated locally and is not versioned.
+
+### Verified setup
+
+- Windows 11, Python 3.12.8, NVIDIA GeForce RTX 3050 6 GB Laptop GPU, driver 581.95.
+- PyTorch 2.7.1+cu128, ACE-Step 1.5.0.
+- End-to-end test: 20-second WAV generation with `int8_weight_only` and CPU offload, completed in about 9 seconds of generation time.
 
 ---
 

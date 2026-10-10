@@ -1,0 +1,1 @@
+{"records": [{"device": "cuda", "infer_steps": 8, "batch_size": 1, "duration_sec": 20.0, "duration_bucket": "short", "per_step_sec": 0.2458922266960144, "updated_at": 1791601525.9242716}], "updated_at": 1791601525.9242716}
