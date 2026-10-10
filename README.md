@@ -1,104 +1,104 @@
 # ace-step-adapter
 
-Um serviço HTTP local que envolve o [ACE-Step 1.5](https://github.com/ACE-Step/ACE-Step-1.5) e expõe **o mesmo contrato da API REST do ACE-Step** para as rotas usadas por clientes como a CLI do [gerador-musical](https://github.com/AlexPetraglia/gerador-musical).
+A local HTTP service that wraps [ACE-Step 1.5](https://github.com/ACE-Step/ACE-Step-1.5) and exposes **the same REST contract as the ACE-Step API** for the routes a music-generation client needs. It is built for clients such as the [gerador-musical](https://github.com/AlexPetraglia/gerador-musical) CLI.
 
-> **Status:** em desenvolvimento. Esta versão do README descreve o objetivo, a arquitetura e o contrato planejado. Nada aqui deve ser lido como funcionalidade já validada.
-
----
-
-## Por que existe
-
-O ACE-Step 1.5 roda em GPUs com pouca memória, mas em uma RTX 3050 de 6 GB a geração de áudio não completava. Os testes mostraram que:
-
-- a etapa de difusão (DiT) termina em poucos segundos;
-- a decodificação do áudio (VAE) trava quando a VRAM livre fica perto de zero;
-- o modelo principal fica retido na GPU durante toda a sessão (`Keeping main model on cuda (persistent)`).
-
-Com **quantização INT8 dos pesos do DiT** e **descarregamento para a CPU entre as etapas** (`offload_to_cpu=True`), a geração de 20 s completou em cerca de 1,3 s de decodificação, com áudio válido. Essas opções não estão disponíveis na API do ACE-Step, então o adapter as aplica diretamente no handler Python do ACE-Step.
-
-O adapter existe para:
-
-1. **Isolar a GPU** em um processo próprio, com seus logs e seu timeout, separado do cliente.
-2. **Manter o contrato da API do ACE-Step**, para que um cliente que já fala com o ACE-Step possa usar o adapter sem mudanças.
-3. **Facilitar a troca de ambiente.** Se você passar a usar o ACE-Step oficial, em outra máquina ou em uma VPS, basta apontar o cliente para a nova URL.
+> **Status:** in development. This README describes the goal, the architecture and the planned contract. Nothing here should be read as a validated feature yet.
 
 ---
 
-## Arquitetura
+## Why it exists
+
+ACE-Step 1.5 is designed to run on GPUs with limited memory, but on an RTX 3050 with 6 GB the audio generation did not complete. Testing showed that:
+
+- the diffusion stage (DiT) finishes in a few seconds;
+- the audio decoding stage (VAE) stalls when the free VRAM drops close to zero;
+- the main model stays resident on the GPU for the whole session (`Keeping main model on cuda (persistent)`).
+
+With **INT8 weight-only quantization of the DiT** and **CPU offload between stages** (`offload_to_cpu=True`), a 20-second generation completed, with the VAE decode taking about 1.3 seconds and a valid audio file. Neither option is exposed by the ACE-Step API, so the adapter applies them directly on the ACE-Step Python handler.
+
+The adapter exists to:
+
+1. **Isolate the GPU** in its own process, with its own logs and timeouts, separate from the client.
+2. **Keep the ACE-Step API contract**, so a client that already talks to ACE-Step can use the adapter without changes.
+3. **Make moving environments easy.** If you later use the official ACE-Step server, on another machine or on a VPS, the client only needs a different URL.
+
+---
+
+## Architecture
 
 ```
-┌──────────────┐   HTTP (contrato ACE-Step)   ┌─────────────────────┐   Python   ┌──────────────────┐
-│    Cliente   │ ───────────────────────────▶ │  ace-step-adapter   │ ─────────▶ │ handler ACE-Step │
-│ (ex.: CLI)   │ ◀─────────────────────────── │  (FastAPI, GPU)     │ ◀───────── │ (DiT, VAE, ...)  │
+┌──────────────┐   HTTP (ACE-Step contract)   ┌─────────────────────┐   Python   ┌──────────────────┐
+│    Client    │ ───────────────────────────▶ │  ace-step-adapter   │ ─────────▶ │ ACE-Step handler │
+│ (e.g. CLI)   │ ◀─────────────────────────── │  (FastAPI, GPU)     │ ◀───────── │ (DiT, VAE, ...)  │
 └──────────────┘                              └─────────────────────┘            └──────────────────┘
 ```
 
-O ACE-Step continua instalado e intocado, em sua própria pasta. O adapter importa o pacote `acestep` como biblioteca e controla a inicialização e a geração.
+ACE-Step stays installed and unmodified in its own folder. The adapter imports the `acestep` package as a library and controls model loading and generation.
 
 ---
 
-## Contrato implementado
+## Implemented contract
 
-A versão inicial implementa apenas as rotas que um cliente de geração precisa. O fluxo é assíncrono: envia-se uma tarefa, consulta-se o status até a conclusão e baixa-se o arquivo gerado.
+The first version implements only the routes a generation client needs. The flow is asynchronous: submit a task, poll its status until it finishes, then download the generated file.
 
-| Método | Rota | Função |
-|--------|------|--------|
-| `GET`  | `/health` | Verifica se o serviço está ativo e com o modelo carregado. |
-| `POST` | `/release_task` | Cria uma tarefa de geração e devolve o `task_id`. |
-| `POST` | `/query_result` | Consulta o status de uma ou mais tarefas (`task_id_list`). |
-| `GET`  | `/v1/audio?path=...` | Baixa o arquivo gerado. Só serve arquivos da pasta de saída do serviço. |
+| Method | Route | Purpose |
+|--------|-------|---------|
+| `GET`  | `/health` | Checks that the service is up and the model is loaded. |
+| `POST` | `/release_task` | Creates a generation task and returns its `task_id`. |
+| `POST` | `/query_result` | Queries the status of one or more tasks (`task_id_list`). |
+| `GET`  | `/v1/audio?path=...` | Downloads a generated file. Only files inside the service output folder are served. |
 
-Formato das respostas: `{"data": ..., "code": 200, "error": null, "timestamp": ..., "extra": null}`. No resultado de `/query_result`, o campo `result` é uma string JSON, como na API do ACE-Step.
+Response format: `{"data": ..., "code": 200, "error": null, "timestamp": ..., "extra": null}`. In the `/query_result` response, `result` is a JSON string, as in the ACE-Step API.
 
-Status das tarefas: `0` em andamento, `1` concluída, `2` falhou.
+Task status values: `0` in progress, `1` completed, `2` failed.
 
-Outras rotas da API do ACE-Step (treinamento, formatação de letra, modelos, etc.) **não** fazem parte do escopo inicial.
-
----
-
-## Configuração (planejada)
-
-Os parâmetros de execução ficam em um arquivo de configuração do próprio adapter, não em variáveis de ambiente do servidor:
-
-- caminho da instalação do ACE-Step;
-- modelo DiT (padrão: `acestep-v15-turbo`);
-- quantização do DiT (padrão: `int8_weight_only`);
-- `offload_to_cpu` (padrão: `true`);
-- pasta de saída dos arquivos;
-- porta e endereço de escuta (padrão: `127.0.0.1`).
+Other ACE-Step API routes (training, lyric formatting, model management, etc.) are **out of scope** for the first version.
 
 ---
 
-## Requisitos
+## Configuration (planned)
 
-- Windows 10/11 ou Linux com GPU NVIDIA e drivers atualizados.
-- Python compatível com o ACE-Step 1.5 (3.11 ou 3.12).
-- ACE-Step 1.5 instalado e com os modelos baixados, em uma pasta separada deste repositório.
-- Para quantização INT8: `torchao`, já presente no ambiente do ACE-Step.
+Runtime settings live in the adapter's own configuration file, not in server environment variables:
 
----
-
-## Limitações conhecidas
-
-- Testado apenas em uma máquina com RTX 3050 Laptop de 6 GB. Outras configurações não foram validadas.
-- Uma geração por vez. A GPU não é compartilhada entre tarefas.
-- O adapter não é um proxy: ele executa o ACE-Step diretamente. Por isso, um travamento dentro do ACE-Step ainda pode bloquear a GPU. O adapter aplica timeout nas tarefas, mas não consegue interromper uma operação CUDA em andamento.
-- Dependência de versão: o adapter usa a API Python interna do ACE-Step, que pode mudar entre versões. A versão testada será indicada na documentação de instalação.
+- path to the ACE-Step installation;
+- DiT model (default: `acestep-v15-turbo`);
+- DiT quantization (default: `int8_weight_only`);
+- `offload_to_cpu` (default: `true`);
+- output folder;
+- listening host and port (default: `127.0.0.1`).
 
 ---
 
-## Instalação
+## Requirements
 
-> Em preparação. A instalação, o comando de execução e os testes serão documentados quando a implementação estiver pronta.
-
----
-
-## Relação com o ACE-Step
-
-Este projeto é independente e não é afiliado ao projeto ACE-Step. Ele depende do ACE-Step 1.5, que é distribuído sob licença MIT. Os modelos têm licenças próprias, verifique-as antes de usar.
+- Windows 10/11, or Linux with an NVIDIA GPU and up-to-date drivers.
+- Python compatible with ACE-Step 1.5 (3.11 or 3.12).
+- ACE-Step 1.5 installed with its models downloaded, in a separate folder from this repository.
+- For INT8 quantization: `torchao`, already present in the ACE-Step environment.
 
 ---
 
-## Licença
+## Known limitations
 
-A definir.
+- Tested only on a laptop RTX 3050 with 6 GB. Other hardware has not been validated.
+- One generation at a time. The GPU is not shared between tasks.
+- The adapter is not a proxy: it runs ACE-Step directly. A stall inside ACE-Step can still block the GPU. The adapter applies timeouts to tasks, but it cannot interrupt a CUDA operation that is already running.
+- Version coupling: the adapter uses ACE-Step's internal Python API, which may change between releases. The tested version will be listed in the installation guide.
+
+---
+
+## Installation
+
+> Coming soon. Installation, the run command and the tests will be documented once the implementation is ready.
+
+---
+
+## Relation to ACE-Step
+
+This project is independent and is not affiliated with the ACE-Step project. It depends on ACE-Step 1.5, which is released under the MIT license. Model weights have their own licenses; check them before use.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
