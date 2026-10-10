@@ -1,0 +1,16 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Configuração local e segredos
+.env
+config/local.*
+
+# Saídas de geração e logs locais
+output/
+logs/
